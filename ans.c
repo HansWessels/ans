@@ -88,7 +88,7 @@ void verdeel_symbols(int64_t freq[], int symbols_count[], int symbol_size, int t
 
 void make_rng_table(int table[], int symbols_count[], int symbol_size, int table_size)
 {
-	uint32_t seed=31415268;
+	uint32_t seed=0;
 	int symbol;
 	int i;
 	for(i=0; i<table_size; i++)
@@ -105,7 +105,6 @@ void make_rng_table(int table[], int symbols_count[], int symbol_size, int table
 			int k=0;
 			seed=1103515245UL*seed+12345UL;
 			pos=(table_size*((seed>>15)&0xffff))>>16; /* calculate insertion pos */
-			printf("pos=%i, ", pos);
 			table_size--;
 			for(;;)
 			{
@@ -123,16 +122,76 @@ void make_rng_table(int table[], int symbols_count[], int symbol_size, int table
 					break;
 				}
 			}
-			printf("table_pos = %i; %i -> %02X\n", k, table[k], symbol);
 			table[k]=symbol; /* insert symbol in ans_table */
 			n--;
 		}
 	}
 }
 
+void make_simple_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{
+	int i;
+	int table_pos=0;
+	for(i=0; i<symbol_size; i++)
+	{
+		int n;
+		n=symbols_count[i];
+		while(n>0)
+		{
+			ans_table[table_pos]=i;
+			table_pos++;
+			n--;
+		}
+	}
+}
+
+void make_sorted_simple_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{
+	int i;
+	int table_pos=0;
+	int max=0;
+	for(i=0; i<symbol_size; i++)
+	{
+		int n;
+		n=symbols_count[i];
+		if(n>max)
+		{
+			max=n;
+		}
+	}
+	while(max>0)
+	{
+		int sub_max=0;	
+		for(i=0; i<symbol_size; i++)
+		{
+			int n;
+			n=symbols_count[i];
+			if(n>sub_max)
+			{
+				if(n==max)
+				{
+					while(n>0)
+					{
+						ans_table[table_pos]=i;
+						table_pos++;
+						n--;
+					}
+				}
+				else if(n<max)
+				{
+					sub_max=n;
+				}
+			}
+		}
+		max=sub_max;
+	}
+}
+
 void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 {
-	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_simple_table(ans_table, symbols_count, symbol_size, table_size);
+	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
 }
 
 #define TABLE_SIZE 128
