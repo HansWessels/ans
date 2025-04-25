@@ -53,19 +53,19 @@ void freq_count(uint8_t *data, int64_t size, int64_t freq[], int symbol_size)
 	}
 }
 
-void verdeel_bits(int64_t freq[], int bits_count[], int symbol_size, int total_bits)
+void verdeel_symbols(int64_t freq[], int symbols_count[], int symbol_size, int table_size)
 {
 	int i;
-	bzero(bits_count, symbol_size*sizeof(int));
+	bzero(symbols_count, symbol_size*sizeof(int));
 	for(i=0; i<symbol_size; i++)
 	{
 		if(freq[i]>0)
 		{
-			bits_count[i]=1;
-			total_bits--;
+			symbols_count[i]=1;
+			table_size--;
 		}
 	}
-	while(total_bits!=0)
+	while(table_size!=0)
 	{
 		int i;
 		float worst=0;
@@ -74,19 +74,68 @@ void verdeel_bits(int64_t freq[], int bits_count[], int symbol_size, int total_b
 		if(freq[i]>0)
 		{
 			float cost;
-			cost=(float)freq[i]/(float)bits_count[i];
+			cost=(float)freq[i]/(float)symbols_count[i];
 			if(cost>worst)
 			{
 				worst=cost;
 				worst_i=i;
 			}
 		}
-		bits_count[worst_i]++;
-		total_bits--;
+		symbols_count[worst_i]++;
+		table_size--;
 	}
 }
 
-#define BITS_COUNT 4096
+void make_rng_table(int table[], int symbols_count[], int symbol_size, int table_size)
+{
+	uint32_t seed=31415268;
+	int symbol;
+	int i;
+	for(i=0; i<table_size; i++)
+	{
+		table[i]=-1;
+	}
+	for(symbol=0; symbol<symbol_size; symbol++)
+	{
+		int n;
+		n=symbols_count[symbol];
+		while(n>0)
+		{
+			int pos;
+			int k=0;
+			seed=1103515245UL*seed+12345UL;
+			pos=(table_size*((seed>>15)&0xffff))>>16; /* calculate insertion pos */
+			printf("pos=%i, ", pos);
+			table_size--;
+			for(;;)
+			{
+				if(table[k]>=0) /* find insertion pos */
+				{
+					k++;
+				}
+				else if(pos>0)
+				{
+					pos--;
+					k++;
+				}
+				else
+				{
+					break;
+				}
+			}
+			printf("table_pos = %i; %i -> %02X\n", k, table[k], symbol);
+			table[k]=symbol; /* insert symbol in ans_table */
+			n--;
+		}
+	}
+}
+
+void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{
+	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
+}
+
+#define TABLE_SIZE 128
 #define SYMBOL_SIZE 256
 
 int main(int argc, char* argv[])
@@ -96,7 +145,8 @@ int main(int argc, char* argv[])
 	while(i<argc)
 	{
 		int64_t freq[SYMBOL_SIZE];
-		int bits_count[BITS_COUNT];
+		int symbols_count[SYMBOL_SIZE];
+		int table[TABLE_SIZE];
 		int64_t size;
 		uint8_t* data;
 		printf("Loding file %s\n",argv[i]);
@@ -108,7 +158,8 @@ int main(int argc, char* argv[])
 		}
 		printf("File size = %li\n", size);
 		freq_count(data, size, freq, SYMBOL_SIZE);
-		verdeel_bits(freq, bits_count, SYMBOL_SIZE, BITS_COUNT);
+		verdeel_symbols(freq, symbols_count, SYMBOL_SIZE, TABLE_SIZE);
+		make_table(table, symbols_count, SYMBOL_SIZE, TABLE_SIZE);
 		{
 			int i;
 			float total_bits=0;
@@ -117,19 +168,31 @@ int main(int argc, char* argv[])
 				if(freq[i]!=0)
 				{
 					float bits;
-					bits=log2f((float)BITS_COUNT/(float)bits_count[i]);
+					bits=log2f((float)TABLE_SIZE/(float)symbols_count[i]);
 					total_bits+=bits*freq[i];
 					if((i>32) && (i<127))
 					{
-						printf("freq[%4c] = %3li = %4i = %f bits\n", i, freq[i], bits_count[i], bits);
+						printf("freq[%4c] = %3li = %4i = %f bits\n", i, freq[i], symbols_count[i], bits);
 					}
 					else
 					{
-						printf("freq[0x%02X] = %3li = %4i = %f bits\n", i, freq[i], bits_count[i], bits);
+						printf("freq[0x%02X] = %3li = %4i = %f bits\n", i, freq[i], symbols_count[i], bits);
 					}
 				}
 			}
 			printf("Total_bits %li = %f\n", size*8, total_bits);
+			for(i=0; i<TABLE_SIZE; i++)
+			{
+				if((table[i]>32) && (table[i]<127))
+				{
+					printf("%c ", table[i]);
+				}
+				else
+				{
+					printf("0x%02X ", table[i]);
+				}
+			}
+			printf("\n");
 		}
 		free(data);
 		i++;
