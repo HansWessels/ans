@@ -87,7 +87,7 @@ void verdeel_symbols(int64_t freq[], int symbols_count[], int symbol_size, int t
 }
 
 void make_rng_table(int table[], int symbols_count[], int symbol_size, int table_size)
-{
+{ /* init table using a Linear congruential generator, x = (ax+c) mod m, m = 2^32, a = 1103515245, c = 12345 */
 	uint32_t seed=0;
 	int symbol;
 	int i;
@@ -129,7 +129,7 @@ void make_rng_table(int table[], int symbols_count[], int symbol_size, int table
 }
 
 void make_simple_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
-{
+{ /* init table by just inserting symbols, smallest symbol first */
 	int i;
 	int table_pos=0;
 	for(i=0; i<symbol_size; i++)
@@ -146,7 +146,7 @@ void make_simple_table(int ans_table[], int symbols_count[], int symbol_size, in
 }
 
 void make_sorted_simple_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
-{
+{ /* init table by just inserting symbols, most frequent symbol first */
 	int i;
 	int table_pos=0;
 	int max=0;
@@ -187,11 +187,101 @@ void make_sorted_simple_table(int ans_table[], int symbols_count[], int symbol_s
 	}
 }
 
+void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* according to "Jarek Duda" paper, least frequent first  */
+	float* precise_pos;
+	int i;
+	int pos;
+	precise_pos = malloc(symbol_size*sizeof(float));
+	if(precise_pos == NULL)
+	{
+		printf("Malloc error for %s!\n", __func__);
+		exit(-1);
+	}
+	for(i=0; i<symbol_size; i++)
+	{
+		float pp;
+		if(symbols_count[i]!=0)
+		{
+			pp=table_size/(2*symbols_count[i]);
+		}
+		else
+		{
+			pp=(float)symbol_size;
+		}
+		precise_pos[i]=pp;
+	}
+	for(pos=0; pos<table_size; pos++)
+	{
+		float smallest_pos=(float)table_size;
+		int smallest_count=symbol_size;
+		int smallest_symbol=0;
+		int i;
+		for(i=0; i<symbol_size; i++)
+		{
+			float pp;
+			pp=precise_pos[i];
+			if(pp<smallest_pos)
+			{
+				smallest_pos=pp;
+				smallest_count=symbols_count[i];
+				smallest_symbol=i;
+			}
+			else if((pp==smallest_pos) && (symbols_count[i]<smallest_count))
+			{
+				smallest_count=symbols_count[i];
+				smallest_symbol=i;
+			}
+		}
+		ans_table[pos]=smallest_symbol;
+		precise_pos[smallest_symbol]+=table_size/symbols_count[smallest_symbol];
+	}
+	free(precise_pos);
+}
+
 void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 {
 //	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_simple_table(ans_table, symbols_count, symbol_size, table_size);
-	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
+	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
+}
+
+mpz_t encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], int table_size)
+{
+	int r;
+	int pos;
+	mpz_add_ui(x, x, 1);
+	r=(int)mpz_tdiv_q_ui(x, x, symbols_count[symbol]);
+	mpz_mul_ui(x, x, table_size);
+	pos=0;
+	for(;;)
+	{ /* zoek r'th occurence of symbol in table */
+		if(ans_table[pos]==symbol)
+		{
+			if(r==0)
+			{
+				break;
+			}
+			else
+			{
+				r--;
+			}
+		}
+		pos++
+	}
+	mpz_add_ui(x, x, pos);
+	return x;
+}
+
+mpz_t encode_ans_uint8_t(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[], int symbols_count[], int table_size)
+{
+	while(data_size!=0)
+	{
+		data_size--;
+		x=encode_symbol(data[data_size], x, ans_table, symbols_count, table_size);
+	}
+	return x;
 }
 
 #define TABLE_SIZE 128
