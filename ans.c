@@ -4,11 +4,16 @@
 **
 */
 
+/* 
+** gcc ../q/c_code/ans/ans.c -lm -lgmp -o ans
+*/
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <gmp.h>
 
 int64_t load_file(char* infile, uint8_t** data_in)
 {
@@ -211,6 +216,7 @@ void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_siz
 		}
 		precise_pos[i]=pp;
 	}
+	printf("Start\n");
 	for(pos=0; pos<table_size; pos++)
 	{
 		float smallest_pos=(float)table_size;
@@ -236,7 +242,47 @@ void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_siz
 		ans_table[pos]=smallest_symbol;
 		precise_pos[smallest_symbol]+=table_size/symbols_count[smallest_symbol];
 	}
+	printf("Eind\n");
 	free(precise_pos);
+}
+
+/*
+**
+** Priem table:
+Table(4): Rel errsq, priem = 3, err = 0.000000
+Table(8): Rel errsq, priem = 3, err = 1.000000
+Table(16): Rel errsq, priem = 3, err = 2.461250
+Table(32): Rel errsq, priem = 23, err = 3.046979
+Table(64): Rel errsq, priem = 23, err = 16.294859
+Table(128): Rel errsq, priem = 47, err = 50.583920
+Table(256): Rel errsq, priem = 181, err = 208.831421
+Table(512): Rel errsq, priem = 881, err = 729.684570
+Table(1024): Rel errsq, priem = 8053, err = 3046.951416
+Table(2048): Rel errsq, priem = 883, err = 12254.189453
+Table(4096): Rel errsq, priem = 1607, err = 46985.398438
+Table(8192): Rel errsq, priem = 18149, err = 189977.968750
+Table(16384): Rel errsq, priem = 11807, err = 762292.062500
+Table(32768): Rel errsq, priem = 1399, err = 2796467.750000
+Table(65536): Rel errsq, priem = 29333, err = 8780226.000000
+**
+*/
+void make_priem_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* init table by using a prime to spave out the data */
+	int i;
+	int table_pos=0;
+	int const priem=1607;
+	for(i=0; i<symbol_size; i++)
+	{
+		int n;
+		n=symbols_count[i];
+		while(n>0)
+		{
+			ans_table[table_pos]=i;
+			table_pos+=priem;
+			table_pos%=table_size;
+			n--;
+		}
+	}
 }
 
 void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
@@ -244,10 +290,11 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 //	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_simple_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
-	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
+	make_priem_table(ans_table, symbols_count, symbol_size, table_size);
 }
 
-mpz_t encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], int table_size)
+void encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], int table_size)
 {
 	int r;
 	int pos;
@@ -268,23 +315,59 @@ mpz_t encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], i
 				r--;
 			}
 		}
-		pos++
+		pos++;
 	}
 	mpz_add_ui(x, x, pos);
-	return x;
 }
 
-mpz_t encode_ans_uint8_t(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[], int symbols_count[], int table_size)
+void encode_ans_uint8_t(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[], int symbols_count[], int table_size)
 {
 	while(data_size!=0)
 	{
 		data_size--;
-		x=encode_symbol(data[data_size], x, ans_table, symbols_count, table_size);
+		encode_symbol(data[data_size], x, ans_table, symbols_count, table_size);
 	}
-	return x;
 }
 
-#define TABLE_SIZE 128
+int decode_symbol(mpz_t x, int ans_table[], int symbols_count[], int table_size)
+{
+	int symbol;
+	int index;
+	int pos;
+	index=(int)mpz_tdiv_q_ui(x, x, table_size);
+	symbol=ans_table[index];
+	pos=0;
+	while(--index>=0)
+	{
+		if(ans_table[index]==symbol)
+		{
+			pos++;
+		}
+	}
+	mpz_mul_ui(x, x, symbols_count[symbol]);
+	pos--;
+	if(pos>0)
+	{
+		mpz_add_ui(x, x, pos);
+	}
+	else if(pos<0)
+	{
+		mpz_sub_ui(x, x, 1);
+	}
+	return symbol;
+}
+
+void decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int table_size)
+{
+	while(mpz_sgn(x)!=0)
+	{
+		int symbol;
+		symbol=decode_symbol(x, ans_table, symbols_count, table_size);
+		printf("%c", symbol);
+	}
+}
+
+#define TABLE_SIZE 4096
 #define SYMBOL_SIZE 256
 
 int main(int argc, char* argv[])
@@ -342,6 +425,18 @@ int main(int argc, char* argv[])
 				}
 			}
 			printf("\n");
+			{ /* encodeding and decoding */
+				mpz_t x;
+				mpz_init(x);
+				unsigned long nibbles;
+				printf("Result:\n");
+				encode_ans_uint8_t(x, data, size, table, symbols_count, TABLE_SIZE);
+				nibbles=mpz_out_str (stdout, 16, x);
+				printf("\n");
+				printf("=%li bits\n", nibbles*4);
+				decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE);
+				mpz_clear(x);
+			}
 		}
 		free(data);
 		i++;
