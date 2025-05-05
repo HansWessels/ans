@@ -208,15 +208,14 @@ void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_siz
 		float pp;
 		if(symbols_count[i]!=0)
 		{
-			pp=table_size/(2*symbols_count[i]);
+			pp=(float)table_size/(float)(2*symbols_count[i]);
 		}
 		else
 		{
-			pp=(float)symbol_size;
+			pp=(float)2*table_size;
 		}
 		precise_pos[i]=pp;
 	}
-	printf("Start\n");
 	for(pos=0; pos<table_size; pos++)
 	{
 		float smallest_pos=(float)table_size;
@@ -240,9 +239,8 @@ void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_siz
 			}
 		}
 		ans_table[pos]=smallest_symbol;
-		precise_pos[smallest_symbol]+=table_size/symbols_count[smallest_symbol];
+		precise_pos[smallest_symbol]+=(float)table_size/(float)symbols_count[smallest_symbol];
 	}
-	printf("Eind\n");
 	free(precise_pos);
 }
 
@@ -290,8 +288,24 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 //	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_simple_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
-	make_priem_table(ans_table, symbols_count, symbol_size, table_size);
+	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_priem_table(ans_table, symbols_count, symbol_size, table_size);
+	{ /* Sanety check */
+		int count[4096]={0};
+		int i;
+		for(i=0; i<table_size; i++)
+		{
+			count[ans_table[i]]++;
+		}
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]!=count[i])
+			{
+				printf("Error! %02X : count = %i, tab_count=%i\n", i, symbols_count[i], count[i]);
+				exit(-1);
+			}
+		}
+	}
 }
 
 void encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], int table_size)
@@ -363,7 +377,7 @@ void decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int table
 	{
 		int symbol;
 		symbol=decode_symbol(x, ans_table, symbols_count, table_size);
-		printf("%c", symbol);
+//		printf("%c", symbol);
 	}
 }
 
@@ -391,6 +405,7 @@ int main(int argc, char* argv[])
 		printf("File size = %li\n", size);
 		freq_count(data, size, freq, SYMBOL_SIZE);
 		verdeel_symbols(freq, symbols_count, SYMBOL_SIZE, TABLE_SIZE);
+		printf("Make table\n");
 		make_table(table, symbols_count, SYMBOL_SIZE, TABLE_SIZE);
 		{
 			int i;
@@ -402,6 +417,7 @@ int main(int argc, char* argv[])
 					float bits;
 					bits=log2f((float)TABLE_SIZE/(float)symbols_count[i]);
 					total_bits+=bits*freq[i];
+					#if 0
 					if((i>32) && (i<127))
 					{
 						printf("freq[%4c] = %3li = %4i = %f bits\n", i, freq[i], symbols_count[i], bits);
@@ -410,9 +426,11 @@ int main(int argc, char* argv[])
 					{
 						printf("freq[0x%02X] = %3li = %4i = %f bits\n", i, freq[i], symbols_count[i], bits);
 					}
+					#endif
 				}
 			}
 			printf("Total_bits %li = %f\n", size*8, total_bits);
+			#if 0
 			for(i=0; i<TABLE_SIZE; i++)
 			{
 				if((table[i]>32) && (table[i]<127))
@@ -425,16 +443,17 @@ int main(int argc, char* argv[])
 				}
 			}
 			printf("\n");
+			#endif
 			{ /* encodeding and decoding */
 				mpz_t x;
 				mpz_init(x);
-				unsigned long nibbles;
-				printf("Result:\n");
+				unsigned long bits;
+//				printf("Result:\n");
 				encode_ans_uint8_t(x, data, size, table, symbols_count, TABLE_SIZE);
-				nibbles=mpz_out_str (stdout, 16, x);
-				printf("\n");
-				printf("=%li bits\n", nibbles*4);
-				decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE);
+//				nibbles=mpz_out_str (stdout, 16, x);
+				bits=mpz_sizeinbase (x, 2);
+				printf("Compressed = %li bits\n", bits);
+//				decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE);
 				mpz_clear(x);
 			}
 		}
