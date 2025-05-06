@@ -283,13 +283,115 @@ void make_priem_table(int ans_table[], int symbols_count[], int symbol_size, int
 	}
 }
 
+int add_symbol(int table[], int size, int symbol, int count)
+{
+	int d;
+	int i;
+	int j=size-1;
+	size+=count;
+	d=2*count-size;
+	for(i=size; i>0;)
+	{
+		i--;
+		if(d>0)
+		{
+			table[i]=symbol;
+			d-=2*size;
+		}
+		else
+		{
+			table[i]=table[j];
+			j--;
+		}
+		d+=2*count;
+	}
+	return size;
+}
+
+void make_us_bh_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* init table by using Bresenham's line algorithm */
+	int size=0;
+	int i;
+	for(i=0; i<symbol_size; i++)
+	{
+		if(symbols_count[i]>0)
+		{
+			size=add_symbol(ans_table, size, i, symbols_count[i]);
+		}
+	}
+}
+
+void make_sb_bh_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* init table by using Bresenham's line algorithm, biggest first */
+	int size=0;
+	int i;
+	int max=0;
+	for(i=0; i<symbol_size; i++)
+	{
+		int n;
+		n=symbols_count[i];
+		if(n>max)
+		{
+			max=n;
+		}
+	}
+	while(max>0)
+	{
+		int sub_max=0;	
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]>sub_max)
+			{
+				if(symbols_count[i]==max)
+				{
+					size=add_symbol(ans_table, size, i, symbols_count[i]);
+				}
+				else if(symbols_count[i]<max)
+				{
+					sub_max=symbols_count[i];
+				}
+			}
+		}
+		max=sub_max;
+	}
+}
+
+void make_ss_bh_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* init table by using Bresenham's line algorithm, smallest first */
+	int size=0;
+	int i;
+	int min=1;
+	while(min<table_size)
+	{
+		int sub_min=table_size;
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]<sub_min)
+			{
+				if(symbols_count[i]==min)
+				{
+					size=add_symbol(ans_table, size, i, symbols_count[i]);
+				}
+				else if(symbols_count[i]>min)
+				{
+					sub_min=symbols_count[i];
+				}
+			}
+		}
+		min=sub_min;
+	}
+}
+
 void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 {
 //	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_simple_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
-	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_priem_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_us_bh_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_sb_bh_table(ans_table, symbols_count, symbol_size, table_size);
+	make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
 	{ /* Sanety check */
 		int count[4096]={0};
 		int i;
