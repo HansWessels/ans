@@ -16,7 +16,7 @@
 #include <gmp.h>
 
 #define MAX_SYMBOL_COUNT 512
-#define MAX_ANS_TABLE 4096
+#define MAX_ANS_TABLE 65536
 
 int64_t load_file(char* infile, uint8_t** data_in)
 {
@@ -197,37 +197,31 @@ void make_sorted_simple_table(int ans_table[], int symbols_count[], int symbol_s
 
 void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 { /* according to "Jarek Duda" paper, least frequent first  */
-	float* precise_pos;
+	double precise_pos[512];
 	int i;
 	int pos;
-	precise_pos = malloc(symbol_size*sizeof(float));
-	if(precise_pos == NULL)
-	{
-		printf("Malloc error for %s!\n", __func__);
-		exit(-1);
-	}
 	for(i=0; i<symbol_size; i++)
 	{
-		float pp;
+		double pp;
 		if(symbols_count[i]!=0)
 		{
-			pp=(float)table_size/(float)(2*symbols_count[i]);
+			pp=(double)table_size/(double)(2*symbols_count[i]);
 		}
 		else
 		{
-			pp=(float)2*table_size;
+			pp=(double)(2*table_size);
 		}
 		precise_pos[i]=pp;
 	}
 	for(pos=0; pos<table_size; pos++)
 	{
-		float smallest_pos=(float)table_size;
+		double smallest_pos=(double)(2*table_size);
 		int smallest_count=symbol_size;
 		int smallest_symbol=0;
 		int i;
 		for(i=0; i<symbol_size; i++)
 		{
-			float pp;
+			double pp;
 			pp=precise_pos[i];
 			if(pp<smallest_pos)
 			{
@@ -242,9 +236,8 @@ void make_precise_lff_table(int ans_table[], int symbols_count[], int symbol_siz
 			}
 		}
 		ans_table[pos]=smallest_symbol;
-		precise_pos[smallest_symbol]+=(float)table_size/(float)symbols_count[smallest_symbol];
+		precise_pos[smallest_symbol]+=(double)table_size/(double)symbols_count[smallest_symbol];
 	}
-	free(precise_pos);
 }
 
 /*
@@ -271,7 +264,7 @@ void make_priem_table(int ans_table[], int symbols_count[], int symbol_size, int
 { /* init table by using a prime to spave out the data */
 	int i;
 	int table_pos=0;
-	int const priem=23;
+	int const priem=47;
 	for(i=0; i<symbol_size; i++)
 	{
 		int n;
@@ -485,6 +478,110 @@ void make_ss_bl_table(int ans_table[], int symbols_count[], int symbol_size, int
 	}
 }
 
+void make_hdl_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{
+	int used[MAX_SYMBOL_COUNT]={0};
+	int start[MAX_SYMBOL_COUNT];
+	int pos;
+	{ /* zoek meest frequente symbool */
+		int i;
+		int max=0;
+		int max_symbol=0;
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]>max)
+			{
+				max=symbols_count[i];
+				max_symbol=i;
+			}
+		}
+		ans_table[0]=max_symbol;
+		used[max_symbol]++;
+		start[max_symbol]=0;
+	}
+	for(pos=1; pos<table_size; pos++)
+	{
+		int i;
+		float max=0.0;
+		int max_symbol=0;
+		for(i=0; i<symbol_size; i++)
+		{
+			if(used[i]!=0)
+			{
+				float delta=(float)symbols_count[i]/(float)table_size-(float)used[i]/(float)(pos-start[i]);
+				if(delta>=max)
+				{
+					if(used[i]<symbols_count[i])
+					{
+						if(delta==max)
+						{ /* bij gelijk spel heeft minst frequente symbool voorrang */
+							if(symbols_count[i]<symbols_count[max_symbol])
+							{
+								max_symbol=i;
+							}
+						}
+						else
+						{
+							max_symbol=i;
+							max=delta;
+						}
+					}
+				}
+			}
+		}
+		if(max==0.0)
+		{
+			int max=0;
+			for(i=0; i<symbol_size; i++)
+			{
+				if(used[i]==0)
+				{
+					if(symbols_count[i]>max)
+					{
+						max_symbol=i;
+						max=symbols_count[i];
+					}
+				}
+			}
+			if(max==0)
+			{
+				float max=0.0;
+				for(i=0; i<symbol_size; i++)
+				{
+					if(used[i]!=0)
+					{
+						float delta=(float)used[i]/(float)(pos-start[i])-(float)symbols_count[i]/(float)table_size;
+						if(delta>=max)
+						{
+							if(used[i]<symbols_count[i])
+							{
+								if(delta==max)
+								{ /* bij gelijk spel heeft minst frequente symbool voorrang */
+									if(symbols_count[i]<symbols_count[max_symbol])
+									{
+										max_symbol=i;
+									}
+								}
+								else
+								{
+									max_symbol=i;
+									max=delta;
+								}
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				start[max_symbol]=pos;
+			}
+		}
+		ans_table[pos]=max_symbol;
+		used[max_symbol]++;
+	}	
+}
+
 void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 {
 //	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
@@ -496,7 +593,8 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 //	make_sb_bh_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_sb_bl_table(ans_table, symbols_count, symbol_size, table_size);
-	make_ss_bl_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_ss_bl_table(ans_table, symbols_count, symbol_size, table_size);
+	make_hdl_table(ans_table, symbols_count, symbol_size, table_size);
 	{ /* Sanety check */
 		int count[MAX_ANS_TABLE]={0};
 		int i;
@@ -513,6 +611,7 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 			}
 		}
 	}
+	if(1)
 	{ /* print table */
 		int i;
 		for(i=0; i<symbol_size; i++)
@@ -611,7 +710,7 @@ void decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int table
 	}
 }
 
-#define TABLE_SIZE 4096
+#define TABLE_SIZE 128
 #define SYMBOL_SIZE 256
 
 int main(int argc, char* argv[])
