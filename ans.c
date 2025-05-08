@@ -15,6 +15,9 @@
 #include <math.h>
 #include <gmp.h>
 
+#define MAX_SYMBOL_COUNT 512
+#define MAX_ANS_TABLE 4096
+
 int64_t load_file(char* infile, uint8_t** data_in)
 {
 	FILE* f;
@@ -268,7 +271,7 @@ void make_priem_table(int ans_table[], int symbols_count[], int symbol_size, int
 { /* init table by using a prime to spave out the data */
 	int i;
 	int table_pos=0;
-	int const priem=1607;
+	int const priem=23;
 	for(i=0; i<symbol_size; i++)
 	{
 		int n;
@@ -284,7 +287,7 @@ void make_priem_table(int ans_table[], int symbols_count[], int symbol_size, int
 }
 
 int add_symbol(int table[], int size, int symbol, int count)
-{
+{ /* Bresenham's line algorithm */
 	int d;
 	int i;
 	int j=size-1;
@@ -296,6 +299,36 @@ int add_symbol(int table[], int size, int symbol, int count)
 		if(d>0)
 		{
 			table[i]=symbol;
+			d-=2*size;
+		}
+		else
+		{
+			table[i]=table[j];
+			j--;
+		}
+		d+=2*count;
+	}
+	return size;
+}
+
+int add_symbols(int table[], int size, int symbols[], int symbols_count, int count)
+{ /* Bresenham's line algorithm, using symbol sequence */
+	int d;
+	int i;
+	int pos=0;
+	int j=size-1;
+	size+=count;
+	d=2*count-size;
+	for(i=size; i>0;)
+	{
+		i--;
+		if(d>0)
+		{
+			table[i]=symbols[pos++];
+			if(pos>=symbols_count)
+			{
+				pos=0;
+			}
 			d-=2*size;
 		}
 		else
@@ -356,6 +389,44 @@ void make_sb_bh_table(int ans_table[], int symbols_count[], int symbol_size, int
 	}
 }
 
+void make_sb_bl_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* init table by using Bresenham's line algorithm, biggest first, alle symbolen met zelfde frequentie tegelijk toevoegen */
+	int size=0;
+	int i;
+	int max=0;
+	for(i=0; i<symbol_size; i++)
+	{
+		int n;
+		n=symbols_count[i];
+		if(n>max)
+		{
+			max=n;
+		}
+	}
+	while(max>0)
+	{
+		int sub_max=0;	
+		int line[MAX_SYMBOL_COUNT];
+		int pos=0;
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]>sub_max)
+			{
+				if(symbols_count[i]==max)
+				{
+					line[pos++]=i;
+				}
+				else if(symbols_count[i]<max)
+				{
+					sub_max=symbols_count[i];
+				}
+			}
+		}
+		size=add_symbols(ans_table, size, line, pos, pos*max);
+		max=sub_max;
+	}
+}
+
 void make_ss_bh_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 { /* init table by using Bresenham's line algorithm, smallest first */
 	int size=0;
@@ -382,6 +453,38 @@ void make_ss_bh_table(int ans_table[], int symbols_count[], int symbol_size, int
 	}
 }
 
+void make_ss_bl_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{ /* init table by using Bresenham's line algorithm, smallest first, alle symbolen met zelfde frequentie tegelijk toevoegen */
+	int size=0;
+	int i;
+	int min=1;
+	while(min<table_size)
+	{
+		int sub_min=table_size;
+		int pos=0;
+		int line[MAX_SYMBOL_COUNT];
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]<sub_min)
+			{
+				if(symbols_count[i]==min)
+				{
+					line[pos++]=i;
+				}
+				else if(symbols_count[i]>min)
+				{
+					sub_min=symbols_count[i];
+				}
+			}
+		}
+		if(pos>0)
+		{
+			size=add_symbols(ans_table, size, line, pos, pos*min);
+		}
+		min=sub_min;
+	}
+}
+
 void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
 {
 //	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
@@ -391,9 +494,11 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 //	make_priem_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_us_bh_table(ans_table, symbols_count, symbol_size, table_size);
 //	make_sb_bh_table(ans_table, symbols_count, symbol_size, table_size);
-	make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
+//	make_sb_bl_table(ans_table, symbols_count, symbol_size, table_size);
+	make_ss_bl_table(ans_table, symbols_count, symbol_size, table_size);
 	{ /* Sanety check */
-		int count[4096]={0};
+		int count[MAX_ANS_TABLE]={0};
 		int i;
 		for(i=0; i<table_size; i++)
 		{
@@ -405,6 +510,29 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 			{
 				printf("Error! %02X : count = %i, tab_count=%i\n", i, symbols_count[i], count[i]);
 				exit(-1);
+			}
+		}
+	}
+	{ /* print table */
+		int i;
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]>0)
+			{
+				int j;
+				printf("%02X(%4i):", i, symbols_count[i]);
+				for(j=0; j<table_size; j++)
+				{
+					if(ans_table[j]==i)
+					{
+						printf("@");
+					}
+					else
+					{
+						printf("_");
+					}
+				}
+				printf("\n");
 			}
 		}
 	}
