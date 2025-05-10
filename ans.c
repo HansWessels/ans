@@ -18,6 +18,81 @@
 #define MAX_SYMBOL_COUNT 512
 #define MAX_ANS_TABLE 65536
 
+/*
+** ARJ CRC32 routines
+**
+** 2022 Hans Wessels
+*/
+
+/*
+** this function makes a CRC32 table for ARJ CRC32
+** call function with pointer to an unsigned long[256] array
+*/
+
+#include <stdint.h>
+
+void make_crc32_table(uint32_t crc_table[])
+{
+  int max_bits=8;
+  int bits=1;
+  crc_table[0]=0;
+  crc_table[1<<(max_bits-1)]=0xEDB88320UL;
+  do
+  {
+    int i=(1<<bits)-1;
+    do
+    {
+      int j=(1<<bits)-1;
+      int done=i<<(max_bits-2*bits);
+      uint32_t crc=crc_table[done<<bits];
+      int offset=(int)((crc&j)<<(max_bits-bits));
+      crc>>=bits;
+      do
+      {
+        int tmp=j<<(max_bits-bits);
+        crc_table[tmp+done]=crc^crc_table[tmp^offset];
+      }
+      while(j--);
+    }
+    while(--i);
+    bits+=bits;
+  }
+  while(bits<max_bits);
+}
+
+/*
+** this function calculates the ARJ CRC32 checksum over count bytes in data
+** call function with count: nuber of bytes to CRC, data: pointer to data bytes
+*/
+
+uint32_t crc32(unsigned long count, uint8_t* data, uint32_t crc_table[])
+{
+	uint32_t crc=(uint32_t)-1;
+	while(count--!=0)
+	{
+		uint8_t c = *data++;
+		c ^= (uint8_t) crc;
+		crc >>= 8;
+		crc ^= crc_table[c];
+	}
+	crc=~crc;
+	return crc;
+}
+
+uint32_t crc32init(void)
+{
+	uint32_t crc=(uint32_t)-1;
+	return crc;
+}
+
+uint32_t crc32byte(uint8_t c, uint32_t crc_table[], uint32_t crc)
+{
+	c ^= (uint8_t) crc;
+	crc >>= 8;
+	crc ^= crc_table[c];
+	return crc;
+}
+
 int64_t load_file(char* infile, uint8_t** data_in)
 {
 	FILE* f;
@@ -703,56 +778,57 @@ void make_table(int nr, int ans_table[], int symbols_count[], int symbol_size, i
 	}
 }
 
-void encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], int table_size)
+void encode_symbol(int symbol, mpz_t x, int ans_table[], int symbols_count[], int table_size, int s_offset[], int count_2_pos[])
 {
 	int r;
 	int pos;
 	mpz_add_ui(x, x, 1);
 	r=(int)mpz_tdiv_q_ui(x, x, symbols_count[symbol]);
 	mpz_mul_ui(x, x, table_size);
-	pos=0;
-	for(;;)
-	{ /* zoek r'th occurence of symbol in table */
-		if(ans_table[pos]==symbol)
-		{
-			if(r==0)
-			{
-				break;
-			}
-			else
-			{
-				r--;
-			}
-		}
-		pos++;
-	}
-	mpz_add_ui(x, x, pos);
+	mpz_add_ui(x, x, count_2_pos[s_offset[symbol]+r]);
 }
 
 void encode_ans_uint8_t(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[], int symbols_count[], int table_size)
 {
+	int s_offset[MAX_SYMBOL_COUNT];
+	int count_2_pos[MAX_ANS_TABLE];
+	{
+		int i;
+		int s_count[MAX_SYMBOL_COUNT]={0};
+		for(i=0; i<table_size; i++)
+		{
+			int s=ans_table[i];
+			s_count[s]++;
+		}
+		s_offset[0]=0;
+		for(i=0; i<(MAX_SYMBOL_COUNT-1); i++)
+		{
+			s_offset[i+1]=s_offset[i]+s_count[i];
+			s_count[i]=0;
+		}
+		s_count[MAX_SYMBOL_COUNT]=0;
+		for(i=0; i<table_size; i++)
+		{
+			int s=ans_table[i];
+			count_2_pos[s_offset[s]+s_count[s]]=i;
+			s_count[s]++;
+		}
+	}
 	while(data_size!=0)
 	{
 		data_size--;
-		encode_symbol(data[data_size], x, ans_table, symbols_count, table_size);
+		encode_symbol(data[data_size], x, ans_table, symbols_count, table_size, s_offset, count_2_pos);
 	}
 }
 
-int decode_symbol(mpz_t x, int ans_table[], int symbols_count[], int table_size)
+int decode_symbol(mpz_t x, int ans_table[], int symbols_count[], int table_size, int pos_2_count[])
 {
 	int symbol;
 	int index;
 	int pos;
 	index=(int)mpz_tdiv_q_ui(x, x, table_size);
 	symbol=ans_table[index];
-	pos=0;
-	while(--index>=0)
-	{
-		if(ans_table[index]==symbol)
-		{
-			pos++;
-		}
-	}
+	pos=pos_2_count[index];
 	mpz_mul_ui(x, x, symbols_count[symbol]);
 	pos--;
 	if(pos>0)
@@ -766,14 +842,27 @@ int decode_symbol(mpz_t x, int ans_table[], int symbols_count[], int table_size)
 	return symbol;
 }
 
-void decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int table_size)
+uint32_t decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int table_size, uint32_t crc_table[])
 {
+	uint32_t crc=crc32init();
+	int s_count[MAX_SYMBOL_COUNT]={0};
+	int pos_2_count[MAX_ANS_TABLE];
+	int i;
+	for(i=0; i<table_size; i++)
+	{
+		int s=ans_table[i];
+		pos_2_count[i]=s_count[s];
+		s_count[s]++;
+	}
 	while(mpz_sgn(x)!=0)
 	{
 		int symbol;
-		symbol=decode_symbol(x, ans_table, symbols_count, table_size);
+		symbol=decode_symbol(x, ans_table, symbols_count, table_size, pos_2_count);
+		crc=crc32byte(symbol, crc_table, crc);
 //		printf("%c", symbol);
 	}
+	crc=~crc;
+	return crc;
 }
 
 void statistiek(int table_size, int64_t freq[], int symbols_count[], int table[], int symbol_size, int64_t size)
@@ -846,10 +935,13 @@ void statistiek(int table_size, int64_t freq[], int symbols_count[], int table[]
 
 int main(int argc, char* argv[])
 {
+	uint32_t crc_table[256];
 	int i;
 	i=1;
+	make_crc32_table(crc_table);
 	while(i<argc)
 	{
+		uint32_t crc;
 		int64_t freq[SYMBOL_SIZE];
 		int symbols_count[SYMBOL_SIZE];
 		int table[MAX_ANS_TABLE];
@@ -872,15 +964,15 @@ int main(int argc, char* argv[])
 			return -1;
 		}
 		freq_count(data, size, freq, symbol_size);
-		if(1)
-		{
+		if(0)
+		{ /* vul big data met random bytes met symbols_count frequentie, we willen altijd de zelfde random data hebben */
 			int i;
 			verdeel_symbols(freq, symbols_count, symbol_size, 65536);
 			make_table(1, table, symbols_count, symbol_size, 65536);
 			verdeel_symbols(freq, symbols_count, symbol_size, TABLE_SIZE);
 			srand48(31415);
 			for(i=0; i<BIG_DATA_SIZE; i++)
-			{ /* vul big data met random bytes met symbols_count frequentie, we willen altijd de zelfde random data hebben */
+			{
 				big_data[i]=table[lrand48()&0x7FFF];
 			}
 			size=BIG_DATA_SIZE;
@@ -892,6 +984,7 @@ int main(int argc, char* argv[])
 			verdeel_symbols(freq, symbols_count, symbol_size, TABLE_SIZE);
 			data_to_be_compressed=data;
 		}
+		crc=crc32(size, data_to_be_compressed, crc_table);
 		printf("File size = %li\n", size);
 		{
 			int table_no;
@@ -908,7 +1001,11 @@ int main(int argc, char* argv[])
 					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
 					bits=mpz_sizeinbase (x, 2);
 					printf("compressed = %li bits\n", bits);
-//					decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE);
+					if(crc!=decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE, crc_table))
+					{
+						printf("CRC error!\n");
+						exit(-1);
+					}
 					mpz_clear(x);
 				}
 			}
