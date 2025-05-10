@@ -264,7 +264,55 @@ void make_priem_table(int ans_table[], int symbols_count[], int symbol_size, int
 { /* init table by using a prime to spave out the data */
 	int i;
 	int table_pos=0;
-	int const priem=47;
+	int priem;
+	if(table_size<=16)
+	{
+		priem=3;
+	}
+	else if(table_size<=64)
+	{
+		priem=23;
+	}
+	else if(table_size<=128)
+	{
+		priem=47;
+	}
+	else if(table_size<=256)
+	{
+		priem=181;
+	}
+	else if(table_size<=512)
+	{
+		priem=881;
+	}
+	else if(table_size<=1024)
+	{
+		priem=8053;
+	}
+	else if(table_size<=2048)
+	{
+		priem=883;
+	}
+	else if(table_size<=4096)
+	{
+		priem=1607;
+	}
+	else if(table_size<=8192)
+	{
+		priem=18149;
+	}
+	else if(table_size<=16384)
+	{
+		priem=11807;
+	}
+	else if(table_size<=32768)
+	{
+		priem=1399;
+	}
+	else
+	{
+		priem=29333;
+	}
 	for(i=0; i<symbol_size; i++)
 	{
 		int n;
@@ -582,19 +630,61 @@ void make_hdl_table(int ans_table[], int symbols_count[], int symbol_size, int t
 	}	
 }
 
-void make_table(int ans_table[], int symbols_count[], int symbol_size, int table_size)
+#define MAX_TABLE (11)
+char make_table_names[MAX_TABLE][128]=
 {
-//	make_rng_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_simple_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_priem_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_us_bh_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_sb_bh_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_sb_bl_table(ans_table, symbols_count, symbol_size, table_size);
-//	make_ss_bl_table(ans_table, symbols_count, symbol_size, table_size);
-	make_hdl_table(ans_table, symbols_count, symbol_size, table_size);
+	"rng     ",
+	"simple  ",
+	"s.simple",
+	"precise ",
+	"priem   ",
+	"us. bh. ",
+	"sb. bh. ",
+	"ss. bh. ",
+	"sb. bl. ",
+	"ss. bl. ",
+	"HDL     "
+};
+
+void make_table(int nr, int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{
+	switch(nr)
+	{
+	case 0:
+	default:
+		make_rng_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 1:
+		make_simple_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 2:
+		make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 3:
+		make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 4:
+		make_priem_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 5:
+		make_us_bh_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 6:
+		make_sb_bh_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 7:
+		make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 8:
+		make_sb_bl_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 9:
+		make_ss_bl_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	case 10:
+		make_hdl_table(ans_table, symbols_count, symbol_size, table_size);
+		break;
+	}
 	{ /* Sanety check */
 		int count[MAX_ANS_TABLE]={0};
 		int i;
@@ -608,30 +698,6 @@ void make_table(int ans_table[], int symbols_count[], int symbol_size, int table
 			{
 				printf("Error! %02X : count = %i, tab_count=%i\n", i, symbols_count[i], count[i]);
 				exit(-1);
-			}
-		}
-	}
-	if(1)
-	{ /* print table */
-		int i;
-		for(i=0; i<symbol_size; i++)
-		{
-			if(symbols_count[i]>0)
-			{
-				int j;
-				printf("%02X(%4i):", i, symbols_count[i]);
-				for(j=0; j<table_size; j++)
-				{
-					if(ans_table[j]==i)
-					{
-						printf("@");
-					}
-					else
-					{
-						printf("_");
-					}
-				}
-				printf("\n");
 			}
 		}
 	}
@@ -710,8 +776,73 @@ void decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int table
 	}
 }
 
-#define TABLE_SIZE 128
+void statistiek(int table_size, int64_t freq[], int symbols_count[], int table[], int symbol_size, int64_t size)
+{
+	int i;
+	float total_bits=0;
+	for(i=0; i<symbol_size; i++)
+	{
+		if(freq[i]!=0)
+		{
+			float bits;
+			bits=log2f((float)table_size/(float)symbols_count[i]);
+			total_bits+=bits*freq[i];
+			#if 0
+			if((i>32) && (i<127))
+			{
+				printf("freq[%4c] = %3li = %4i = %.1f bits\n", i, freq[i], symbols_count[i], bits);
+			}
+			else
+			{
+				printf("freq[0x%02X] = %3li = %4i = %.1f bits\n", i, freq[i], symbols_count[i], bits);
+			}
+			#endif
+		}
+	}
+	printf("Total_bits %.1f = %.1f, ", (float)size*log2f(symbol_size), total_bits);
+	#if 0
+	for(i=0; i<table_size; i++)
+	{
+		if((table[i]>32) && (table[i]<127))
+		{
+			printf("%c ", table[i]);
+		}
+		else
+		{
+			printf("0x%02X ", table[i]);
+		}
+	}
+	printf("\n");
+	#endif
+	if(0)
+	{ /* print table */
+		int i;
+		for(i=0; i<symbol_size; i++)
+		{
+			if(symbols_count[i]>0)
+			{
+				int j;
+				printf("%02X(%4i):", i, symbols_count[i]);
+				for(j=0; j<table_size; j++)
+				{
+					if(table[j]==i)
+					{
+						printf("@");
+					}
+					else
+					{
+						printf("_");
+					}
+				}
+				printf("\n");
+			}
+		}
+	}
+}
+
+#define TABLE_SIZE 4096
 #define SYMBOL_SIZE 256
+#define BIG_DATA_SIZE (256*1024)
 
 int main(int argc, char* argv[])
 {
@@ -721,9 +852,18 @@ int main(int argc, char* argv[])
 	{
 		int64_t freq[SYMBOL_SIZE];
 		int symbols_count[SYMBOL_SIZE];
-		int table[TABLE_SIZE];
+		int table[MAX_ANS_TABLE];
 		int64_t size;
 		uint8_t* data;
+		uint8_t* big_data;
+		uint8_t* data_to_be_compressed;
+		int symbol_size=SYMBOL_SIZE;
+		big_data=(uint8_t*)malloc(BIG_DATA_SIZE);
+		if(big_data==NULL)
+		{
+			printf("Malloc error big_data!\n");
+			exit(-1);
+		}
 		printf("Loding file %s\n",argv[i]);
 		size=load_file(argv[i], &data);
 		if(data==NULL)
@@ -731,61 +871,49 @@ int main(int argc, char* argv[])
 			printf("Error loading %s\n", argv[i]);
 			return -1;
 		}
-		printf("File size = %li\n", size);
-		freq_count(data, size, freq, SYMBOL_SIZE);
-		verdeel_symbols(freq, symbols_count, SYMBOL_SIZE, TABLE_SIZE);
-		printf("Make table\n");
-		make_table(table, symbols_count, SYMBOL_SIZE, TABLE_SIZE);
+		freq_count(data, size, freq, symbol_size);
+		if(1)
 		{
 			int i;
-			float total_bits=0;
-			for(i=0; i<256; i++)
-			{
-				if(freq[i]!=0)
-				{
-					float bits;
-					bits=log2f((float)TABLE_SIZE/(float)symbols_count[i]);
-					total_bits+=bits*freq[i];
-					#if 0
-					if((i>32) && (i<127))
-					{
-						printf("freq[%4c] = %3li = %4i = %f bits\n", i, freq[i], symbols_count[i], bits);
-					}
-					else
-					{
-						printf("freq[0x%02X] = %3li = %4i = %f bits\n", i, freq[i], symbols_count[i], bits);
-					}
-					#endif
-				}
+			verdeel_symbols(freq, symbols_count, symbol_size, 65536);
+			make_table(1, table, symbols_count, symbol_size, 65536);
+			verdeel_symbols(freq, symbols_count, symbol_size, TABLE_SIZE);
+			srand48(31415);
+			for(i=0; i<BIG_DATA_SIZE; i++)
+			{ /* vul big data met random bytes met symbols_count frequentie, we willen altijd de zelfde random data hebben */
+				big_data[i]=table[lrand48()&0x7FFF];
 			}
-			printf("Total_bits %li = %f\n", size*8, total_bits);
-			#if 0
-			for(i=0; i<TABLE_SIZE; i++)
+			size=BIG_DATA_SIZE;
+			data_to_be_compressed=big_data;
+			freq_count(data_to_be_compressed, size, freq, symbol_size);
+		}
+		else
+		{
+			verdeel_symbols(freq, symbols_count, symbol_size, TABLE_SIZE);
+			data_to_be_compressed=data;
+		}
+		printf("File size = %li\n", size);
+		{
+			int table_no;
+			for(table_no=0; table_no<MAX_TABLE; table_no++)
 			{
-				if((table[i]>32) && (table[i]<127))
-				{
-					printf("%c ", table[i]);
+				make_table(table_no, table, symbols_count, symbol_size, TABLE_SIZE);
+				printf("Table: %s, table_size=%i ", make_table_names[table_no], TABLE_SIZE);
+				statistiek(TABLE_SIZE, freq, symbols_count, table, symbol_size, size);
+				{ /* encodeding and decoding */
+					mpz_t x;
+					mpz_init(x);
+					unsigned long bits;
+//					printf("Result:\n");
+					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
+					bits=mpz_sizeinbase (x, 2);
+					printf("compressed = %li bits\n", bits);
+//					decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE);
+					mpz_clear(x);
 				}
-				else
-				{
-					printf("0x%02X ", table[i]);
-				}
-			}
-			printf("\n");
-			#endif
-			{ /* encodeding and decoding */
-				mpz_t x;
-				mpz_init(x);
-				unsigned long bits;
-//				printf("Result:\n");
-				encode_ans_uint8_t(x, data, size, table, symbols_count, TABLE_SIZE);
-//				nibbles=mpz_out_str (stdout, 16, x);
-				bits=mpz_sizeinbase (x, 2);
-				printf("Compressed = %li bits\n", bits);
-//				decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE);
-				mpz_clear(x);
 			}
 		}
+		free(big_data);
 		free(data);
 		i++;
 	}
