@@ -893,13 +893,20 @@ void make_tans_table(int tans_table[], int tans_bits[], int ans_table[], int sym
 				tmp>>=1;
 			}
 			x_bits=(1<<bits)-symbol_count;
-			if(x_bits==0)
+			if(01)
 			{
-				bit_pattern=table_size-(1<<(table_bits-bits));
+				if(x_bits==0)
+				{
+					bit_pattern=table_size-(1<<(table_bits-bits));
+				}
+				else
+				{
+					bit_pattern=table_size-(1<<(table_bits-bits+1));
+				}
 			}
 			else
 			{
-				bit_pattern=table_size-(1<<(table_bits-bits+1));
+				bit_pattern=0;
 			}
 			symbol_count-=x_bits;
 			while(symbol_count>0)
@@ -927,6 +934,7 @@ void make_tans_table(int tans_table[], int tans_bits[], int ans_table[], int sym
 				}
 				pos++;
 			}
+			//printf("symbol = %02x, bit_pattern=%i\n", symbol, bit_pattern);
 		}
 	}	
 }		
@@ -943,7 +951,7 @@ void put_bits(mpz_t x, unsigned int bits, int count)
 	mpz_add_ui(x, x, bits);
 }
 
-uint32_t decode_tans(mpz_t x, int ans_table[], int symbols_count[], int table_size, int symbol_size, uint32_t crc_table[])
+uint32_t decode_tans(mpz_t x, unsigned long data_size, int ans_table[], int symbols_count[], int table_size, int symbol_size, uint32_t crc_table[])
 {
 	int tans_table[MAX_ANS_TABLE];
 	int tans_bits[MAX_ANS_TABLE];
@@ -960,7 +968,7 @@ uint32_t decode_tans(mpz_t x, int ans_table[], int symbols_count[], int table_si
 		}
 		state=get_bits(x, table_bits);
 	}
-	while(mpz_cmpabs_ui(x, 1)!=0)
+	while(--data_size!=0)
 	{
 		int symbol;
 		symbol=ans_table[state];
@@ -1162,20 +1170,23 @@ int main(int argc, char* argv[])
 				{ /* encoding and decoding */
 					mpz_t x;
 					mpz_init(x);
-					mpz_set_ui(x, 1);
 					uint32_t new_crc;
 					unsigned long bits;
 //					printf("Result:\n");
 					encode_tans(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
 //					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
 					bits=mpz_sizeinbase (x, 2);
-					printf("compressed = %li bits\n", bits);
-               new_crc=decode_tans(x, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
+					printf("compressed = %li bits, ", bits);
+               new_crc=decode_tans(x, size, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
 //               new_crc=decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE, crc_table);
 					if(crc!=new_crc)
 					{
 						printf("CRC error!\n");
 						exit(-1);
+					}
+					else
+					{
+						printf("CRC OK\n");
 					}
 					mpz_clear(x);
 				}
