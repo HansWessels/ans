@@ -107,7 +107,7 @@ int64_t load_file(char* infile, uint8_t** data_in)
 	}
 	fseek(f, 0, SEEK_END);
 	size = ftell(f);
-	data = (uint8_t*)malloc(size);
+	data = (uint8_t*)malloc(size+1024);
 	if (data == NULL)
 	{
 		fprintf(stderr, "Malloc error voor file data %s !\n", infile);
@@ -865,6 +865,172 @@ uint32_t decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int t
 	return crc;
 }
 
+void make_tans_table(int tans_table[], int tans_bits[], int ans_table[], int symbols_count[], int symbol_size, int table_size)
+{
+	int symbol;
+	int table_bits=0;
+	int tmp=table_size;
+	tmp>>=1;
+	while(tmp>0)
+	{
+		table_bits++;
+		tmp>>=1;
+	}
+	for(symbol=0; symbol<symbol_size; symbol++)
+	{
+		int symbol_count=symbols_count[symbol];
+		if(symbol_count>0)
+		{
+			int tmp=symbol_count;
+			int pos=0;
+			int bit_pattern;
+			int bits=0;
+			int x_bits;
+			tmp--;
+			while(tmp>0)
+			{
+				bits++;
+				tmp>>=1;
+			}
+			x_bits=(1<<bits)-symbol_count;
+			if(x_bits==0)
+			{
+				bit_pattern=table_size-(1<<(table_bits-bits));
+			}
+			else
+			{
+				bit_pattern=table_size-(1<<(table_bits-bits+1));
+			}
+			symbol_count-=x_bits;
+			while(symbol_count>0)
+			{
+				if(ans_table[pos]==symbol)
+				{
+					bit_pattern&=table_size-1;
+					tans_table[pos]=bit_pattern;
+					tans_bits[pos]=table_bits-bits;
+					bit_pattern+=1<<(table_bits-bits);
+					symbol_count--;
+				}
+				pos++;
+			}
+			bits--;
+			while(x_bits>0)
+			{
+				if(ans_table[pos]==symbol)
+				{
+					bit_pattern&=table_size-1;
+					tans_table[pos]=bit_pattern;
+					tans_bits[pos]=table_bits-bits;
+					bit_pattern+=1<<(table_bits-bits);
+					x_bits--;
+				}
+				pos++;
+			}
+		}
+	}	
+}		
+
+unsigned int get_bits(mpz_t x, int count)
+{
+	unsigned int bits=(unsigned int)mpz_tdiv_q_ui(x, x, 1<<count);
+	return bits;
+}
+
+void put_bits(mpz_t x, unsigned int bits, int count)
+{
+	mpz_mul_ui(x, x, 1<<count);
+	mpz_add_ui(x, x, bits);
+}
+
+uint32_t decode_tans(mpz_t x, int ans_table[], int symbols_count[], int table_size, int symbol_size, uint32_t crc_table[])
+{
+	int tans_table[MAX_ANS_TABLE];
+	int tans_bits[MAX_ANS_TABLE];
+	unsigned int state;
+	uint32_t crc=crc32init();
+	make_tans_table(tans_table, tans_bits, ans_table, symbols_count, symbol_size, table_size);
+	{
+		int table_bits=0;
+		table_size>>=1;
+		while(table_size>0)
+		{
+			table_bits++;
+			table_size>>=1;
+		}
+		state=get_bits(x, table_bits);
+	}
+	while(mpz_cmpabs_ui(x, 1)!=0)
+	{
+		int symbol;
+		symbol=ans_table[state];
+		state=tans_table[state]+get_bits(x, tans_bits[state]);
+		crc=crc32byte(symbol, crc_table, crc);
+//		printf("%c", symbol);
+	}
+	{
+		int symbol=ans_table[state];
+		crc=crc32byte(symbol, crc_table, crc);
+//		printf("%c", symbol);
+	}
+	crc=~crc;
+	return crc;
+}
+
+void encode_tans(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[], int symbols_count[], int table_size, int symbol_size, uint32_t crc_table[])
+{
+	int tans_table[MAX_ANS_TABLE];
+	int tans_bits[MAX_ANS_TABLE];
+	unsigned int state=0;
+	make_tans_table(tans_table, tans_bits, ans_table, symbols_count, symbol_size, table_size);
+	if(data_size!=0)
+	{
+		int symbol;
+		data_size--;
+		symbol=(int)data[data_size];
+		while(ans_table[state]!=symbol)
+		{
+			state++;
+		}
+	}
+	while(data_size!=0)
+	{
+		int symbol;
+		int new_state=0;
+		data_size--;
+		symbol=(int)data[data_size];
+		for(;;)
+		{
+			if(ans_table[new_state]==symbol)
+			{
+				if((tans_table[new_state]<=state) && ((tans_table[new_state]+(1<<tans_bits[new_state]))>state))
+				{
+					break;
+				}
+			}
+			new_state++;
+		}
+		{
+			int bits;
+			bits=1<<tans_bits[new_state];
+			bits--;
+			bits&=state;
+			put_bits(x, bits, tans_bits[new_state]);
+			state=new_state;
+		}
+	}
+	{
+		int table_bits=0;
+		table_size>>=1;
+		while(table_size>0)
+		{
+			table_bits++;
+			table_size>>=1;
+		}
+		put_bits(x, state, table_bits);
+	}
+}
+
 void statistiek(int table_size, int64_t freq[], int symbols_count[], int table[], int symbol_size, int64_t size)
 {
 	int i;
@@ -956,7 +1122,7 @@ int main(int argc, char* argv[])
 			printf("Malloc error big_data!\n");
 			exit(-1);
 		}
-		printf("Loding file %s\n",argv[i]);
+		printf("Loading file %s\n",argv[i]);
 		size=load_file(argv[i], &data);
 		if(data==NULL)
 		{
@@ -993,15 +1159,20 @@ int main(int argc, char* argv[])
 				make_table(table_no, table, symbols_count, symbol_size, TABLE_SIZE);
 				printf("Table: %s, table_size=%i ", make_table_names[table_no], TABLE_SIZE);
 				statistiek(TABLE_SIZE, freq, symbols_count, table, symbol_size, size);
-				{ /* encodeding and decoding */
+				{ /* encoding and decoding */
 					mpz_t x;
 					mpz_init(x);
+					mpz_set_ui(x, 1);
+					uint32_t new_crc;
 					unsigned long bits;
 //					printf("Result:\n");
-					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
+					encode_tans(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
+//					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
 					bits=mpz_sizeinbase (x, 2);
 					printf("compressed = %li bits\n", bits);
-					if(crc!=decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE, crc_table))
+               new_crc=decode_tans(x, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
+//               new_crc=decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE, crc_table);
+					if(crc!=new_crc)
 					{
 						printf("CRC error!\n");
 						exit(-1);
