@@ -8,6 +8,27 @@
 ** gcc ../q/c_code/ans/ans.c -lm -lgmp -o ans
 */
 
+/*
+**
+** Priem table:
+Table(4): Rel errsq, priem = 3, err = 0.000000
+Table(8): Rel errsq, priem = 3, err = 1.000000
+Table(16): Rel errsq, priem = 3, err = 2.461250
+Table(32): Rel errsq, priem = 23, err = 3.046979
+Table(64): Rel errsq, priem = 23, err = 16.294859
+Table(128): Rel errsq, priem = 47, err = 50.583920
+Table(256): Rel errsq, priem = 181, err = 208.831421
+Table(512): Rel errsq, priem = 881, err = 729.684570
+Table(1024): Rel errsq, priem = 8053, err = 3046.951416
+Table(2048): Rel errsq, priem = 883, err = 12254.189453
+Table(4096): Rel errsq, priem = 1607, err = 46985.398438
+Table(8192): Rel errsq, priem = 18149, err = 189977.968750
+Table(16384): Rel errsq, priem = 11807, err = 762292.062500
+Table(32768): Rel errsq, priem = 1399, err = 2796467.750000
+Table(65536): Rel errsq, priem = 29333, err = 8780226.000000
+**
+*/
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -17,6 +38,7 @@
 
 #define MAX_SYMBOL_COUNT 512
 #define MAX_ANS_TABLE 65536
+#define DELTA_STATE_OFFSET 1607
 
 /*
 ** ARJ CRC32 routines
@@ -1113,6 +1135,7 @@ int main(int argc, char* argv[])
 	int i;
 	i=1;
 	make_crc32_table(crc_table);
+	double ratio[MAX_TABLE]={0.0};
 	while(i<argc)
 	{
 		uint32_t crc;
@@ -1162,6 +1185,8 @@ int main(int argc, char* argv[])
 		printf("File size = %li\n", size);
 		{
 			int table_no;
+			int best_table=0;
+			int64_t best_size=size*8;
 			for(table_no=0; table_no<MAX_TABLE; table_no++)
 			{
 				make_table(table_no, table, symbols_count, symbol_size, TABLE_SIZE);
@@ -1177,6 +1202,12 @@ int main(int argc, char* argv[])
 //					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
 					bits=mpz_sizeinbase (x, 2);
 					printf("compressed = %li bits, ", bits);
+					if(bits<best_size)
+					{
+						best_size=bits;
+						best_table=table_no;
+					}
+					ratio[table_no]+=(double)bits/(double)size;
                new_crc=decode_tans(x, size, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
 //               new_crc=decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE, crc_table);
 					if(crc!=new_crc)
@@ -1191,10 +1222,51 @@ int main(int argc, char* argv[])
 					mpz_clear(x);
 				}
 			}
+			printf("Best table: %s, %li bits\n", make_table_names[best_table], best_size);
 		}
 		free(big_data);
 		free(data);
 		i++;
+	}
+	{
+		int table_no;
+		int best=0;
+		double best_ratio=ratio[best];
+		for(table_no=0; table_no<MAX_TABLE; table_no++)
+		{
+//			printf("table: %s = %lf\n", make_table_names[table_no], ratio[table_no]);
+			if(ratio[table_no]<best_ratio)
+			{
+				best_ratio=ratio[table_no];
+				best=table_no;
+			}
+		}
+		table_no=0;
+		do
+		{
+			double second_best=1e9;
+			int sb=0;
+			int i;
+			int current=table_no+1;
+			for(i=0; i<MAX_TABLE; i++)
+			{
+				if(ratio[i]==best_ratio)
+				{
+					printf("%02i: %s = %lf\n", current, make_table_names[i], best_ratio);
+					table_no++;
+				}
+			}
+			for(i=0; i<MAX_TABLE; i++)
+			{
+				if((ratio[i]<second_best) && (ratio[i]>best_ratio))
+				{
+					second_best=ratio[i];
+					sb=i;
+				}
+			}
+			best_ratio=second_best;
+			best=sb;
+		}	while(table_no<MAX_TABLE);
 	}
 	return 0;
 }
