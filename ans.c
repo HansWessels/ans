@@ -36,9 +36,10 @@ Table(65536): Rel errsq, priem = 29333, err = 8780226.000000
 #include <math.h>
 #include <gmp.h>
 
+#define TEST_MODE
 #define MAX_SYMBOL_COUNT 512
 #define MAX_ANS_TABLE 65536
-#define DELTA_STATE_OFFSET 1607
+#define DELTA_STATE_OFFSET 0 //1607
 
 /*
 ** ARJ CRC32 routines
@@ -52,6 +53,10 @@ Table(65536): Rel errsq, priem = 29333, err = 8780226.000000
 */
 
 #include <stdint.h>
+
+#ifdef TEST_MODE
+uint64_t global_bit_count=0;
+#endif
 
 void make_crc32_table(uint32_t crc_table[])
 {
@@ -969,8 +974,12 @@ unsigned int get_bits(mpz_t x, int count)
 
 void put_bits(mpz_t x, unsigned int bits, int count)
 {
+	#ifdef TEST_MODE
+	global_bit_count+=count;
+	#else
 	mpz_mul_ui(x, x, 1<<count);
 	mpz_add_ui(x, x, bits);
+	#endif
 }
 
 uint32_t decode_tans(mpz_t x, unsigned long data_size, int ans_table[], int symbols_count[], int table_size, int symbol_size, uint32_t crc_table[])
@@ -978,15 +987,17 @@ uint32_t decode_tans(mpz_t x, unsigned long data_size, int ans_table[], int symb
 	int tans_table[MAX_ANS_TABLE];
 	int tans_bits[MAX_ANS_TABLE];
 	unsigned int state;
+	unsigned int state_offset=0;
 	uint32_t crc=crc32init();
 	make_tans_table(tans_table, tans_bits, ans_table, symbols_count, symbol_size, table_size);
+	table_size--;
 	{
 		int table_bits=0;
-		table_size>>=1;
-		while(table_size>0)
+		int tmp=table_size;
+		while(tmp>0)
 		{
 			table_bits++;
-			table_size>>=1;
+			tmp>>=1;
 		}
 		state=get_bits(x, table_bits);
 	}
@@ -995,6 +1006,9 @@ uint32_t decode_tans(mpz_t x, unsigned long data_size, int ans_table[], int symb
 		int symbol;
 		symbol=ans_table[state];
 		state=tans_table[state]+get_bits(x, tans_bits[state]);
+		state_offset+=DELTA_STATE_OFFSET;
+		state+=state_offset;
+		state&=table_size;
 		crc=crc32byte(symbol, crc_table, crc);
 //		printf("%c", symbol);
 	}
@@ -1012,6 +1026,7 @@ void encode_tans(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[
 	int tans_table[MAX_ANS_TABLE];
 	int tans_bits[MAX_ANS_TABLE];
 	unsigned int state=0;
+	unsigned int state_offset=data_size*DELTA_STATE_OFFSET;
 	make_tans_table(tans_table, tans_bits, ans_table, symbols_count, symbol_size, table_size);
 	if(data_size!=0)
 	{
@@ -1029,6 +1044,9 @@ void encode_tans(mpz_t x, uint8_t *data, unsigned long data_size, int ans_table[
 		int new_state=0;
 		data_size--;
 		symbol=(int)data[data_size];
+		state_offset-=DELTA_STATE_OFFSET;
+		state-=state_offset;
+		state&=table_size-1;
 		for(;;)
 		{
 			if(ans_table[new_state]==symbol)
@@ -1195,12 +1213,19 @@ int main(int argc, char* argv[])
 				{ /* encoding and decoding */
 					mpz_t x;
 					mpz_init(x);
+					#ifdef TEST_MODE
+					global_bit_count=0;
+					#endif
 					uint32_t new_crc;
 					unsigned long bits;
 //					printf("Result:\n");
 					encode_tans(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
 //					encode_ans_uint8_t(x, data_to_be_compressed, size, table, symbols_count, TABLE_SIZE);
+					#ifdef TEST_MODE
+					bits=global_bit_count;
+					#else
 					bits=mpz_sizeinbase (x, 2);
+					#endif
 					printf("compressed = %li bits, ", bits);
 					if(bits<best_size)
 					{
@@ -1208,6 +1233,7 @@ int main(int argc, char* argv[])
 						best_table=table_no;
 					}
 					ratio[table_no]+=(double)bits/(double)size;
+					#ifndef TEST_MODE
                new_crc=decode_tans(x, size, table, symbols_count, TABLE_SIZE, symbol_size, crc_table);
 //               new_crc=decode_ans_ascii_t(x, table, symbols_count, TABLE_SIZE, crc_table);
 					if(crc!=new_crc)
@@ -1219,6 +1245,9 @@ int main(int argc, char* argv[])
 					{
 						printf("CRC OK\n");
 					}
+					#else
+					printf("No CRC\n");
+               #endif
 					mpz_clear(x);
 				}
 			}
