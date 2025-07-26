@@ -41,6 +41,13 @@ Table(65536): Rel errsq, priem = 29333, err = 8780226.000000
 #define MAX_ANS_TABLE 65536
 #define DELTA_STATE_OFFSET 0 //1607
 
+
+#include <stdint.h>
+
+#ifdef TEST_MODE
+uint64_t global_bit_count=0;
+#endif
+
 /*
 ** ARJ CRC32 routines
 **
@@ -51,12 +58,6 @@ Table(65536): Rel errsq, priem = 29333, err = 8780226.000000
 ** this function makes a CRC32 table for ARJ CRC32
 ** call function with pointer to an unsigned long[256] array
 */
-
-#include <stdint.h>
-
-#ifdef TEST_MODE
-uint64_t global_bit_count=0;
-#endif
 
 void make_crc32_table(uint32_t crc_table[])
 {
@@ -732,9 +733,11 @@ void make_hdl_table(int ans_table[], int symbols_count[], int symbol_size, int t
 	}	
 }
 
-#define MAX_TABLE (11)
+#define MAX_TABLE (13)
 char make_table_names[MAX_TABLE][128]=
 {
+	"entropy ",
+	"huffman ",
 	"rng     ",
 	"simple  ",
 	"s.simple",
@@ -752,38 +755,38 @@ void make_table(int nr, int ans_table[], int symbols_count[], int symbol_size, i
 {
 	switch(nr)
 	{
-	case 0:
+	case 2:
 	default:
 		make_rng_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 1:
+	case 3:
 		make_simple_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 2:
+	case 4:
 		make_sorted_simple_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 3:
+	case 5:
 		make_precise_lff_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 4:
+	case 6:
 		make_priem_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 5:
+	case 7:
 		make_us_bh_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 6:
+	case 8:
 		make_sb_bh_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 7:
+	case 9:
 		make_ss_bh_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 8:
+	case 10:
 		make_sb_bl_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 9:
+	case 11:
 		make_ss_bl_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
-	case 10:
+	case 12:
 		make_hdl_table(ans_table, symbols_count, symbol_size, table_size);
 		break;
 	}
@@ -891,6 +894,136 @@ uint32_t decode_ans_ascii_t(mpz_t x, int ans_table[], int symbols_count[], int t
 	crc=~crc;
 	return crc;
 }
+
+void make_clen(int node, int c_len[], int c_left[], int c_right[], int bits)
+{
+	if(node<MAX_SYMBOL_COUNT)
+	{
+		c_len[node]=bits;
+	}
+	else
+	{
+		make_clen(c_left[node], c_len, c_left, c_right, bits+1);
+		make_clen(c_right[node], c_len, c_left, c_right, bits+1);
+	}
+}
+
+uint64_t huffman_entropy(uint8_t *data, unsigned long data_size)
+{
+	int64_t symbol_count[2*MAX_SYMBOL_COUNT]={0};
+	int c_left[2*MAX_SYMBOL_COUNT];
+	int c_right[2*MAX_SYMBOL_COUNT];
+	int c_len[2*MAX_SYMBOL_COUNT]={0};
+	int node=MAX_SYMBOL_COUNT;
+	if(data_size==0)
+	{
+		return 0;
+	}
+	{
+		unsigned long i=data_size;
+		while(i!=0)
+		{
+			i--;
+			symbol_count[data[i]]++;
+		}
+	}
+	for(;;)
+	{
+		uint64_t f0;
+		int s0;
+		uint64_t f1;
+		int s1;
+		int i;
+		f0=data_size;
+		for(i=0; i<2*MAX_SYMBOL_COUNT; i++)
+		{
+			if((symbol_count[i]>0) && (symbol_count[i]<=f0))
+			{
+				f0=symbol_count[i];
+				s0=i;
+			}
+		}
+		symbol_count[s0]=-f0;
+		if(f0==data_size)
+		{
+			node=s0;
+			break;
+		}
+		f1=data_size;
+		for(i=0; i<2*MAX_SYMBOL_COUNT; i++)
+		{
+			if((symbol_count[i]>0) && (symbol_count[i]<f1))
+			{
+				f1=symbol_count[i];
+				s1=i;
+			}
+		}
+		symbol_count[s1]=-f1;
+		c_left[node]=s0;
+		c_right[node]=s1;
+		symbol_count[node]=f0+f1;
+		node++;
+	}
+	make_clen(node, c_len, c_left, c_right, 0);
+	{
+		uint64_t total_bits=0;
+		int i;
+		for(i=0; i<MAX_SYMBOL_COUNT; i++)
+		{
+			total_bits+=c_len[i]*(-symbol_count[i]);
+		}
+		return total_bits;
+	}
+	
+}
+
+uint64_t tans_entropy(uint8_t *data, unsigned long data_size, int symbols_count[], int symbol_size, int table_size)
+{
+	double symbol_bits[MAX_SYMBOL_COUNT]={0.0};
+	int symbol;
+	int table_bits=0;
+	int tmp=table_size;
+	tmp>>=1;
+	while(tmp>0)
+	{
+		table_bits++;
+		tmp>>=1;
+	}
+	for(symbol=0; symbol<symbol_size; symbol++)
+	{
+		int symbol_count=symbols_count[symbol];
+		if(symbol_count>0)
+		{
+			int tmp=symbol_count;
+			int bits=0;
+			int total_bits=0;
+			int x_bits;
+			tmp--;
+			while(tmp>0)
+			{
+				bits++;
+				tmp>>=1;
+			}
+			x_bits=(1<<bits)-symbol_count;
+			symbol_count-=x_bits;
+			total_bits=symbol_count*(table_bits-bits);
+			bits--;
+			total_bits+=2*x_bits*(table_bits-bits);
+			symbol_bits[symbol]=(double)total_bits/(double)(symbol_count+2*x_bits);
+		}
+	}
+	{
+		double bit_count=0.0;
+		while(data_size!=0)
+		{
+			int symbol;
+			data_size--;
+			symbol=(int)data[data_size];
+			bit_count+=symbol_bits[symbol];
+		}
+		return (uint64_t)ceil(bit_count);
+	}
+}		
 
 void make_tans_table(int tans_table[], int tans_bits[], int ans_table[], int symbols_count[], int symbol_size, int table_size)
 {
@@ -1205,7 +1338,16 @@ int main(int argc, char* argv[])
 			int table_no;
 			int best_table=0;
 			int64_t best_size=size*8;
-			for(table_no=0; table_no<MAX_TABLE; table_no++)
+			{
+				uint64_t bits;
+				uint64_t huff_bits;
+				bits=tans_entropy(data, size, symbols_count, symbol_size, TABLE_SIZE);
+				huff_bits=huffman_entropy(data, size);
+				ratio[0]+=(double)bits/(double)size;
+				ratio[1]+=(double)huff_bits/(double)size;
+				printf("Total_bits %li, entropy %li, huffman %li\n", size*8, bits, huff_bits);
+			}
+			for(table_no=2; table_no<MAX_TABLE; table_no++)
 			{
 				make_table(table_no, table, symbols_count, symbol_size, TABLE_SIZE);
 				printf("Table: %s, table_size=%i ", make_table_names[table_no], TABLE_SIZE);
